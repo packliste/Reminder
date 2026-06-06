@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intervall Benachrichtigungen</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 { text-align: center; color: #2c3e50; }
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .btn:hover { background-color: #2980b9; }
+        .btn-test { background-color: #f39c12; }
+        .btn-test:hover { background-color: #d35400; }
+        .btn-start { background-color: #2ecc71; }
+        .btn-start:hover { background-color: #27ae60; }
+        .btn-stop { background-color: #e74c3c; }
+        .btn-stop:hover { background-color: #c0392b; }
+        .rule-card {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        label { display: block; margin-top: 10px; font-weight: bold; font-size: 14px; }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .status {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 15px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🔔 Notification Scheduler</h1>
+    
+    <button class="btn" id="requestPermissionBtn">1. Benachrichtigungen erlauben</button>
+    
+    <hr>
+    
+    <h3>2. Regel definieren</h3>
+    <div class="rule-card">
+        <label>Info-Text (Nachricht):</label>
+        <input type="text" id="infoText" value="Trinken nicht vergessen! 💧">
+        
+        <label>Icon (URL zu einem Bild):</label>
+        <input type="text" id="infoIcon" value="https://cdn-icons-png.flaticon.com/512/3100/3100566.png">
+        
+        <label>Intervall (in Minuten):</label>
+        <input type="number" id="intervalMinutes" value="15" min="1">
+        
+        <label>Aktiv von (Uhrzeit):</label>
+        <input type="time" id="startTime" value="08:00">
+        
+        <label>Aktiv bis (Uhrzeit):</label>
+        <input type="time" id="endTime" value="20:00">
+    </div>
+
+    <button class="btn btn-test" id="testNowBtn">🚀 Jetzt ad-hoc testen</button>
+    
+    <hr>
+
+    <button class="btn btn-start" id="startBtn">3. Planer STARTEN</button>
+    <button class="btn btn-stop" id="stopBtn" style="display:none;">Planer STOPPEN</button>
+
+    <div class="status" id="statusText">Status: Inaktiv</div>
+</div>
+
+<script>
+    let timerInterval = null;
+
+    // Funktion zum Senden der Notification
+    function sendNotification(title, body, iconUrl) {
+        if (!("Notification" in window)) {
+            alert("Dieses Gerät unterstützt keine Web-Notifications.");
+            return;
+        }
+
+        if (Notification.permission === "granted") {
+            new Notification(title, {
+                body: body,
+                icon: iconUrl,
+                requireInteraction: true 
+            });
+        } else {
+            alert("Bitte erteile zuerst die Berechtigung über Button 1!");
+        }
+    }
+
+    // Hilfsfunktion: Prüfen, ob aktuelle Zeit in der Range liegt
+    function isCurrentTimeInBounds(startStr, endStr) {
+        const now = new Date();
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+
+        const [startHours, startMinutes] = startStr.split(':').map(Number);
+        const [endHours, endMinutes] = endStr.split(':').map(Number);
+
+        const startTime = startHours * 60 + startMinutes;
+        const endTime = endHours * 60 + endMinutes;
+
+        if (startTime <= endTime) {
+            return currentTime >= startTime && currentTime <= endTime;
+        } else {
+            return currentTime >= startTime || currentTime <= endTime;
+        }
+    }
+
+    // 1. Rechte anfordern
+    document.getElementById('requestPermissionBtn').addEventListener('click', () => {
+        if (!("Notification" in window)) {
+            alert("Dieses Gerät unterstützt leider keine Web-Notifications.");
+            return;
+        }
+        Notification.requestPermission().then(permission => {
+            if (permission === "granted") {
+                alert("Super! Benachrichtigungen sind aktiviert.");
+            } else {
+                alert("Berechtigung wurde verweigert.");
+            }
+        });
+    });
+
+    // NEU: Ad-hoc Test-Button Event-Listener
+    document.getElementById('testNowBtn').addEventListener('click', () => {
+        const text = document.getElementById('infoText').value;
+        const icon = document.getElementById('infoIcon').value;
+        
+        // Sendet die Notification sofort, ignoriert die Zeiteinstellungen
+        sendNotification("Ad-hoc Test", text, icon);
+    });
+
+    // 2. Timer Starten
+    document.getElementById('startBtn').addEventListener('click', () => {
+        if (Notification.permission !== "granted") {
+            alert("Bitte klicke zuerst auf '1. Benachrichtigungen erlauben'!");
+            return;
+        }
+
+        const text = document.getElementById('infoText').value;
+        const icon = document.getElementById('infoIcon').value;
+        const intervalMs = parseInt(document.getElementById('intervalMinutes').value) * 60 * 1000;
+        const start = document.getElementById('startTime').value;
+        const end = document.getElementById('endTime').value;
+
+        document.getElementById('startBtn').style.display = 'none';
+        document.getElementById('stopBtn').style.display = 'block';
+        document.getElementById('statusText').innerText = `Aktiv (Prüfung alle ${document.getElementById('intervalMinutes').value} Min. zwischen ${start} und ${end})`;
+        document.getElementById('statusText').style.color = '#2ecc71';
+
+        // Erste Prüfung sofort ausführen
+        if (isCurrentTimeInBounds(start, end)) {
+            sendNotification("Geplante Info", text, icon);
+        }
+
+        // Intervall setzen
+        timerInterval = setInterval(() => {
+            if (isCurrentTimeInBounds(start, end)) {
+                sendNotification("Geplante Info", text, icon);
+            }
+        }, intervalMs);
+    });
+
+    // 3. Timer Stoppen
+    document.getElementById('stopBtn').addEventListener('click', () => {
+        clearInterval(timerInterval);
+        document.getElementById('startBtn').style.display = 'block';
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('statusText').innerText = "Status: Inaktiv";
+        document.getElementById('statusText').style.color = '#7f8c8d';
+    });
+</script>
+
+</body>
+</html>
